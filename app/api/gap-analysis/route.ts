@@ -17,6 +17,13 @@ Experience Gap 分为 matchedExperience、highlightExperience、missingExperienc
 Industry Gap 输出目标岗位相关行业知识缺口。
 Priority Actions 最多 3 条，必须具体，不要输出“持续学习”“加强能力”“保持关注”等空话。
 
+输出长度控制：
+- summary 保持简洁，控制在 80 字以内。
+- careerDNAGap 中每个 reason 控制在一到两句，说明关键原因即可。
+- skillGap、experienceGap、industryGap 中每项使用短语或简短句，不写长段落。
+- priorityActions 最多 3 条，每条具体但简洁。
+- 不要扩展 JSON 字段，不要删除任何现有字段。
+
 严格输出以下 JSON，不要输出 Markdown 或解释：
 {
   "targetJob": "",

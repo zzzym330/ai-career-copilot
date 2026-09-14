@@ -11,6 +11,8 @@ type DeepSeekOptions = {
   disableThinking?: boolean;
 };
 
+type DeepSeekRetryReason = "empty-content" | "invalid-json" | "length" | null;
+
 const DEEPSEEK_CHAT_COMPLETIONS_URL =
   "https://api.deepseek.com/chat/completions";
 const DEFAULT_MODEL = "deepseek-v4-flash";
@@ -25,14 +27,21 @@ export async function callDeepSeekJson<T>(
     throw new Error("未配置 DEEPSEEK_API_KEY。");
   }
 
+  const baseMaxTokens = options.maxTokens ?? 2_000;
+  let retryReason: DeepSeekRetryReason = null;
+
   for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const currentMaxTokens = getAttemptMaxTokens(baseMaxTokens, retryReason);
+
     const response = await fetch(DEEPSEEK_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(createRequestBody(messages, options, attempt)),
+      body: JSON.stringify(
+        createRequestBody(messages, options, attempt, retryReason),
+      ),
       signal: AbortSignal.timeout(options.timeoutMs ?? 45_000),
     });
 
@@ -52,18 +61,39 @@ export async function callDeepSeekJson<T>(
     logDeepSeekDebug("raw message content", {
       attempt,
       finishReason: result.finishReason,
+      maxTokens: currentMaxTokens,
       contentLength: content.length,
       usage: result.usage,
       preview: content.slice(0, 1_000),
     });
 
     if (result.finishReason === "length") {
+      if (attempt === 1) {
+        const nextMaxTokens = getAttemptMaxTokens(baseMaxTokens, "length");
+        logDeepSeekDiagnostic(
+          "output truncated, retrying with higher max_tokens",
+          {
+            attempt,
+            maxTokens: currentMaxTokens,
+            nextMaxTokens,
+            finishReason: result.finishReason,
+          },
+        );
+        retryReason = "length";
+        continue;
+      }
+
       throw new Error("DeepSeek 输出被截断，请提高 max_tokens 后重试。");
     }
 
     if (!content) {
       if (attempt === 1) {
-        logDeepSeekDebug("empty content retrying", { attempt });
+        logDeepSeekDebug("empty content retrying", {
+          attempt,
+          maxTokens: currentMaxTokens,
+          finishReason: result.finishReason,
+        });
+        retryReason = "empty-content";
         continue;
       }
 
@@ -82,6 +112,7 @@ export async function callDeepSeekJson<T>(
       });
 
       if (attempt === 1) {
+        retryReason = "invalid-json";
         continue;
       }
 
@@ -96,21 +127,51 @@ function createRequestBody(
   messages: DeepSeekMessage[],
   options: DeepSeekOptions,
   attempt: number,
+  retryReason: DeepSeekRetryReason,
 ) {
-  const retryMessage: DeepSeekMessage = {
-    role: "user",
-    content:
-      "必须直接输出非空的合法 JSON 对象，不要返回空内容，不要输出 Markdown、代码块或解释文字。",
-  };
+  const retryMessage = createRetryMessage(retryReason);
 
   return {
     model: options.model ?? DEFAULT_MODEL,
-    messages: attempt === 1 ? messages : [...messages, retryMessage],
+    messages: attempt === 1 || !retryMessage ? messages : [...messages, retryMessage],
     temperature: options.temperature ?? 0.2,
     response_format: { type: "json_object" },
-    max_tokens: options.maxTokens ?? 2_000,
+    max_tokens: getAttemptMaxTokens(options.maxTokens ?? 2_000, retryReason),
     stream: false,
     ...(options.disableThinking ? { thinking: { type: "disabled" } } : {}),
+  };
+}
+
+function getAttemptMaxTokens(
+  baseMaxTokens: number,
+  retryReason: DeepSeekRetryReason,
+) {
+  if (retryReason !== "length") {
+    return baseMaxTokens;
+  }
+
+  return Math.ceil(Math.max(baseMaxTokens * 1.5, 6_000));
+}
+
+function createRetryMessage(
+  retryReason: DeepSeekRetryReason,
+): DeepSeekMessage | null {
+  if (!retryReason) {
+    return null;
+  }
+
+  if (retryReason === "length") {
+    return {
+      role: "user",
+      content:
+        "上一次输出被截断。请在不改变 JSON 字段结构的前提下精炼输出：只返回合法 JSON object，不输出 Markdown、代码块或解释文字；严格遵守 JSON schema；控制数组中每项文字长度；不要为了详细而生成过长文本。",
+    };
+  }
+
+  return {
+    role: "user",
+    content:
+      "必须直接输出非空的合法 JSON 对象，不要返回空内容，不要输出 Markdown、代码块或解释文字。",
   };
 }
 
