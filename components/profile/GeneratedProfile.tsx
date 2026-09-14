@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { SkillTags } from "@/components/SkillTags";
 import { ContentSection } from "@/components/AppShell";
 import { ProfileRadar } from "@/components/profile/ProfileRadar";
@@ -30,63 +33,94 @@ const growthAreas = [
 type GeneratedProfileProps = {
   profile: CareerProfile;
   canContinueToGap: boolean;
+  isRegenerating: boolean;
   onContinueToGap: () => void;
   onEdit: () => void;
+  onRegenerate: () => void;
   onRestart: () => void;
 };
 
 export function GeneratedProfile({
+  profile,
   canContinueToGap,
+  isRegenerating,
   onContinueToGap,
   onEdit,
+  onRegenerate,
   onRestart,
 }: GeneratedProfileProps) {
+  const [copyStatus, setCopyStatus] = useState("");
+
+  async function handleCopySummary() {
+    try {
+      await navigator.clipboard.writeText(createProfileSummary(profile));
+      setCopyStatus("已复制");
+      window.setTimeout(() => setCopyStatus(""), 1_600);
+    } catch {
+      setCopyStatus("复制失败");
+      window.setTimeout(() => setCopyStatus(""), 1_600);
+    }
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-3.5">
       <DashboardCard>
         <SectionLabel>JobPulse Career DNA</SectionLabel>
-        <h2 className="mt-2 text-xl font-semibold text-neutral-950">
+        <h2 className="mt-1.5 text-xl font-semibold leading-7 text-neutral-950">
           通用职业能力结构
         </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+        <p className="mt-1.5 max-w-3xl text-[14px] leading-6 text-neutral-500">
           Career DNA 展示稳定、可持续追踪的通用职业能力，是后续差距分析、职业路径与面试准备的能力基线。
         </p>
-        <div className="mt-4">
+        <div className="mt-3">
           <ProfileRadar />
         </div>
       </DashboardCard>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-3.5 lg:grid-cols-2">
         <InsightCard title="核心优势" items={strengths} />
         <InsightCard title="待强化能力" items={growthAreas} />
       </div>
 
       <DashboardCard>
-        <h3 className="text-lg font-semibold text-neutral-950">可探索方向</h3>
-        <p className="mt-2 text-sm leading-6 text-neutral-500">
+        <h3 className="text-xl font-semibold leading-7 text-neutral-950">
+          可探索方向
+        </h3>
+        <p className="mt-1.5 text-[14px] leading-6 text-neutral-500">
           基于当前教育、实践与技能背景，可以进一步探索这些发展方向。它们仅用于拓展视野，不是精准职位推荐。
         </p>
-        <div className="mt-4">
+        <div className="mt-3">
           <SkillTags items={explorations} />
         </div>
       </DashboardCard>
 
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-2.5">
         <button
           type="button"
           onClick={onRestart}
-          className="h-11 rounded-full border border-neutral-200 bg-white px-5 text-sm font-medium text-neutral-600 transition hover:border-neutral-400 hover:text-neutral-950"
+          className="h-8 cursor-pointer rounded-lg border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 transition hover:border-neutral-400 hover:bg-neutral-50 hover:text-neutral-950 hover:shadow-sm"
         >
           重新上传
         </button>
         <button
           type="button"
+          onClick={handleCopySummary}
+          className="h-8 cursor-pointer rounded-lg border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 transition hover:border-neutral-400 hover:bg-neutral-50 hover:text-neutral-950 hover:shadow-sm"
+        >
+          {copyStatus || "复制画像摘要"}
+        </button>
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={isRegenerating}
+          className="h-8 cursor-pointer rounded-lg border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 transition hover:border-neutral-400 hover:bg-neutral-50 hover:text-neutral-950 hover:shadow-sm disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none"
+        >
+          {isRegenerating ? "正在重新生成" : "重新生成职业画像"}
+        </button>
+        <button
+          type="button"
           onClick={onEdit}
-          className={`h-11 rounded-full px-5 text-sm font-semibold transition ${
-            canContinueToGap
-              ? "border border-neutral-200 bg-white text-neutral-600 hover:border-neutral-400 hover:text-neutral-950"
-              : "bg-neutral-950 text-white hover:bg-neutral-800"
-          }`}
+          className="h-8 cursor-pointer rounded-lg border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 transition hover:border-neutral-400 hover:bg-neutral-50 hover:text-neutral-950 hover:shadow-sm"
         >
           返回编辑
         </button>
@@ -94,7 +128,7 @@ export function GeneratedProfile({
           <button
             type="button"
             onClick={onContinueToGap}
-            className="h-11 rounded-full bg-neutral-950 px-6 text-sm font-semibold text-white transition hover:bg-neutral-800"
+            className="h-8 cursor-pointer rounded-lg border border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 transition hover:border-neutral-400 hover:bg-neutral-50 hover:text-neutral-950 hover:shadow-sm"
           >
             继续查看岗位差距分析
           </button>
@@ -104,8 +138,34 @@ export function GeneratedProfile({
   );
 }
 
+function createProfileSummary(profile: CareerProfile) {
+  const directions = profile.targetDirections
+    .map((direction) => direction.role ?? `${direction.category}方向`)
+    .join("、");
+  const education = profile.education
+    .map((item) => `${item.school}${item.degree ? `｜${item.degree}` : ""}`)
+    .join("；");
+  const internships = profile.internships
+    .map((item) => `${item.company}${item.role ? `｜${item.role}` : ""}`)
+    .join("；");
+  const projects = profile.projects
+    .map((item) => `${item.name}${item.role ? `｜${item.role}` : ""}`)
+    .join("；");
+  const skills = profile.skills.slice(0, 8).join("、");
+
+  return [
+    directions ? `目标方向：${directions}` : "",
+    education ? `教育背景：${education}` : "",
+    internships ? `实习经历：${internships}` : "",
+    projects ? `项目经历：${projects}` : "",
+    skills ? `核心技能：${skills}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function DashboardCard({ children }: { children: React.ReactNode }) {
-  return <ContentSection>{children}</ContentSection>;
+  return <ContentSection compact>{children}</ContentSection>;
 }
 
 function InsightCard({
@@ -116,13 +176,15 @@ function InsightCard({
   items: string[];
 }) {
   return (
-    <ContentSection>
-      <h3 className="text-lg font-semibold text-neutral-950">{title}</h3>
-      <ul className="mt-4 space-y-3">
+    <ContentSection compact>
+      <h3 className="text-xl font-semibold leading-7 text-neutral-950">
+        {title}
+      </h3>
+      <ul className="mt-2.5 space-y-1.5">
         {items.map((item) => (
           <li
             key={item}
-            className="flex gap-3 text-base leading-7 text-neutral-600"
+            className="flex gap-2.5 text-[15px] leading-6 text-neutral-600"
           >
             <span className="font-semibold text-neutral-950">·</span>
             <span>{item}</span>

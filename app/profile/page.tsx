@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function ProfilePage() {
   return (
-    <AppShell>
+    <AppShell reserveJourneyNavSpace={false}>
       <ProfileBuilder />
     </AppShell>
   );

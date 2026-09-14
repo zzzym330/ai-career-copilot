@@ -8,6 +8,7 @@ type DeepSeekOptions = {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  disableThinking?: boolean;
 };
 
 const DEEPSEEK_CHAT_COMPLETIONS_URL =
@@ -24,38 +25,89 @@ export async function callDeepSeekJson<T>(
     throw new Error("未配置 DEEPSEEK_API_KEY。");
   }
 
-  const response = await fetch(DEEPSEEK_CHAT_COMPLETIONS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: options.model ?? DEFAULT_MODEL,
-      messages,
-      temperature: options.temperature ?? 0.2,
-      response_format: { type: "json_object" },
-      max_tokens: options.maxTokens ?? 2_000,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(options.timeoutMs ?? 45_000),
-  });
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const response = await fetch(DEEPSEEK_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(createRequestBody(messages, options, attempt)),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 45_000),
+    });
 
-  if (!response.ok) {
-    throw new Error(`DeepSeek 请求失败：${response.status}`);
+    if (!response.ok) {
+      logDeepSeekDebug("request failed", {
+        attempt,
+        status: response.status,
+        body: (await response.text()).slice(0, 1_000),
+      });
+      throw new Error(`DeepSeek 请求失败：${response.status}`);
+    }
+
+    const payload = (await response.json()) as unknown;
+    const result = extractMessageResult(payload);
+    const content = result.content.trim();
+
+    logDeepSeekDebug("raw message content", {
+      attempt,
+      finishReason: result.finishReason,
+      contentLength: content.length,
+      usage: result.usage,
+      preview: content.slice(0, 1_000),
+    });
+
+    if (result.finishReason === "length") {
+      throw new Error("DeepSeek 输出被截断，请提高 max_tokens 后重试。");
+    }
+
+    if (!content) {
+      if (attempt === 1) {
+        logDeepSeekDebug("empty content retrying", { attempt });
+        continue;
+      }
+
+      throw new Error("DeepSeek 返回空内容，重试后仍未获得有效结果。");
+    }
+
+    try {
+      return JSON.parse(stripMarkdownCodeBlock(content)) as T;
+    } catch (error) {
+      logDeepSeekDebug("invalid JSON content", {
+        attempt,
+        parseError: error instanceof Error ? error.message : String(error),
+        preview: content.slice(0, 1_000),
+      });
+      throw new Error("DeepSeek 返回内容不是有效 JSON。");
+    }
   }
 
-  const payload = (await response.json()) as unknown;
-  const content = extractMessageContent(payload);
-
-  try {
-    return JSON.parse(stripMarkdownCodeBlock(content)) as T;
-  } catch {
-    throw new Error("DeepSeek 返回内容不是有效 JSON。");
-  }
+  throw new Error("DeepSeek 返回空内容，重试后仍未获得有效结果。");
 }
 
-function extractMessageContent(payload: unknown) {
+function createRequestBody(
+  messages: DeepSeekMessage[],
+  options: DeepSeekOptions,
+  attempt: number,
+) {
+  const retryMessage: DeepSeekMessage = {
+    role: "user",
+    content:
+      "必须直接输出非空的合法 JSON 对象，不要返回空内容，不要输出 Markdown、代码块或解释文字。",
+  };
+
+  return {
+    model: options.model ?? DEFAULT_MODEL,
+    messages: attempt === 1 ? messages : [...messages, retryMessage],
+    temperature: options.temperature ?? 0.2,
+    response_format: { type: "json_object" },
+    max_tokens: options.maxTokens ?? 2_000,
+    stream: false,
+    ...(options.disableThinking ? { thinking: { type: "disabled" } } : {}),
+  };
+}
+
+function extractMessageResult(payload: unknown) {
   if (!isRecord(payload) || !Array.isArray(payload.choices)) {
     throw new Error("DeepSeek 返回中缺少 choices。");
   }
@@ -66,7 +118,14 @@ function extractMessageContent(payload: unknown) {
       isRecord(choice.message) &&
       typeof choice.message.content === "string"
     ) {
-      return choice.message.content;
+      return {
+        content: choice.message.content,
+        finishReason:
+          typeof choice.finish_reason === "string"
+            ? choice.finish_reason
+            : null,
+        usage: isRecord(payload.usage) ? payload.usage : null,
+      };
     }
   }
 
@@ -83,4 +142,10 @@ function stripMarkdownCodeBlock(content: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function logDeepSeekDebug(message: string, detail: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.info(`[deepseek] ${message}`, detail);
+  }
 }
