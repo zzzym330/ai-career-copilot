@@ -73,11 +73,18 @@ export async function callDeepSeekJson<T>(
     try {
       return JSON.parse(stripMarkdownCodeBlock(content)) as T;
     } catch (error) {
-      logDeepSeekDebug("invalid JSON content", {
+      logDeepSeekDiagnostic("invalid JSON content", {
         attempt,
+        finishReason: result.finishReason,
+        contentLength: content.length,
         parseError: error instanceof Error ? error.message : String(error),
         preview: content.slice(0, 1_000),
       });
+
+      if (attempt === 1) {
+        continue;
+      }
+
       throw new Error("DeepSeek 返回内容不是有效 JSON。");
     }
   }
@@ -148,4 +155,8 @@ function logDeepSeekDebug(message: string, detail: unknown) {
   if (process.env.NODE_ENV !== "production") {
     console.info(`[deepseek] ${message}`, detail);
   }
+}
+
+function logDeepSeekDiagnostic(message: string, detail: unknown) {
+  console.warn(`[deepseek] ${message}`, detail);
 }
