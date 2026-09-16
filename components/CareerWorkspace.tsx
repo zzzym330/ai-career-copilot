@@ -46,12 +46,6 @@ const mockResult: AnalysisResult = {
 
 export function CareerWorkspace() {
   const router = useRouter();
-  const savedAnalysisValue = useSyncExternalStore(
-    subscribeToCurrentAnalysis,
-    getSavedAnalysisValue,
-    () => null,
-  );
-  const savedAnalysis = parseSavedAnalysis(savedAnalysisValue);
   const historyValue = useSyncExternalStore(
     subscribeToAnalysisHistory,
     getHistoryValue,
@@ -66,14 +60,11 @@ export function CareerWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [isDemoResult, setIsDemoResult] = useState(false);
   const [showProfilePrompt, setShowProfilePrompt] = useState(false);
-  const [canRestoreSavedResult, setCanRestoreSavedResult] = useState(true);
 
   const isAnalyzing = phase === "analyzing";
-  const shouldRestoreSavedResult =
-    canRestoreSavedResult && phase === "idle" && savedAnalysis !== null;
-  const displayedJd = jd ?? savedAnalysis?.originalJd ?? "";
-  const displayedPhase: AnalysisPhase = shouldRestoreSavedResult ? "done" : phase;
-  const displayedResult = shouldRestoreSavedResult ? savedAnalysis : result;
+  const displayedJd = jd ?? "";
+  const displayedPhase: AnalysisPhase = phase;
+  const displayedResult = result;
 
   useEffect(() => {
     if (!isAnalyzing) {
@@ -101,7 +92,6 @@ export function CareerWorkspace() {
 
     setPhase("analyzing");
     setActiveHistoryId(null);
-    setCanRestoreSavedResult(false);
     setActiveStep(-1);
     setError(null);
     setIsDemoResult(false);
@@ -133,7 +123,6 @@ export function CareerWorkspace() {
 
   function handleSelectExample(exampleJd: string) {
     setJd(exampleJd);
-    setCanRestoreSavedResult(false);
     setPhase("idle");
     setActiveStep(-1);
     setError(null);
@@ -148,7 +137,6 @@ export function CareerWorkspace() {
     setActiveStep(4);
     setError(null);
     setIsDemoResult(false);
-    setCanRestoreSavedResult(false);
     setActiveHistoryId(entry.id);
     saveCurrentAnalysis(entry.analysis, entry.originalJd);
   }
@@ -167,7 +155,6 @@ export function CareerWorkspace() {
 
   function handleJdChange(value: string) {
     setJd(value);
-    setCanRestoreSavedResult(false);
     setActiveHistoryId(null);
   }
 
@@ -253,16 +240,6 @@ function saveCurrentAnalysis(result: AnalysisResult, originalJd: string) {
   window.dispatchEvent(new Event("jobpulse-current-analysis"));
 }
 
-function subscribeToCurrentAnalysis(onStoreChange: () => void) {
-  window.addEventListener("storage", onStoreChange);
-  window.addEventListener("jobpulse-current-analysis", onStoreChange);
-
-  return () => {
-    window.removeEventListener("storage", onStoreChange);
-    window.removeEventListener("jobpulse-current-analysis", onStoreChange);
-  };
-}
-
 function subscribeToAnalysisHistory(onStoreChange: () => void) {
   window.addEventListener("storage", onStoreChange);
   window.addEventListener("jobpulse-analysis-history", onStoreChange);
@@ -273,24 +250,8 @@ function subscribeToAnalysisHistory(onStoreChange: () => void) {
   };
 }
 
-function getSavedAnalysisValue() {
-  return window.localStorage.getItem(CURRENT_JD_ANALYSIS_KEY);
-}
-
 function getHistoryValue() {
   return window.localStorage.getItem(ANALYSIS_HISTORY_KEY);
-}
-
-function parseSavedAnalysis(value: string | null): PersistedAnalysisResult | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(value) as PersistedAnalysisResult;
-  } catch {
-    return null;
-  }
 }
 
 function parseAnalysisHistory(value: string | null): AnalysisHistoryEntry[] {
