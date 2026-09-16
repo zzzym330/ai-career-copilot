@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+portfolio/
+portfolio_fixed/
+portfolio.zip
+portfolio_fixed.zip
